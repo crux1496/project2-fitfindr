@@ -73,80 +73,139 @@ search and tells the user which part of the request to loosen.
 
 ## Planning Loop
 
-<!-- Your branch rule, stated as a rule — the condition AND both paths — plus
-     the file and function that holds it.
-
-     Like this:
-       "If search_listings returns an empty list, put a message in the session
-        and stop. Otherwise take the first result and go to suggest_outfit."
-        — agent.py::run_agent
-
-     The grader checks your code against what you claim here, so the file and
-     function have to be real. -->
-
-**Branch rule:**
+**Branch rule:** If `search_listings` returns an empty list, put a message in
+`session["error"]` that repeats what was searched for and names what to
+change (raise the price ceiling, drop the size, or use a broader word), then
+stop without calling `suggest_outfit`. Otherwise put the first result in
+`session["selected_item"]` and go to `suggest_outfit`, then `create_fit_card`.
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+The loop is a `while` over a `next_step` value (`search_listings` →
+`suggest_outfit` → `create_fit_card` → `done`). Each step picks the next one
+from what it just got back, and `trace.check_iterations(count)` runs on every
+pass as the stop condition. The empty search sets `next_step = "done"`
+straight from `search_listings`, so that path goes round the loop once and
+the happy path goes round three times.
 
-**What moves through the session:** <!-- which fields, in what order -->
+**How the query is parsed:** Regex, in `agent.py::parse_query`, before the
+loop starts. A price is taken from `under/below/less than/up to/max $N` or a
+bare `$N`. A size is taken from `size X`, where X is a letter size (`M`,
+`S/M`, `XXS`), a shoe size (`8`, `US 8.5`) or a waist size (`W30`,
+`W30 L30`). Both are cut out of the query, along with lead-ins like "looking
+for a". What's left is the description. The result goes into
+`session["parsed"]` as `{"description", "size", "max_price"}`.
+
+**What moves through the session:** `query` → `parsed` → `search_results`
+(the whole ranked list) → `selected_item` (`search_results[0]`) →
+`outfit_suggestion` (from `suggest_outfit(selected_item, wardrobe)`) →
+`fit_card` (from `create_fit_card(outfit_suggestion, selected_item)`). Every
+tool reads its inputs out of the session rather than from a local variable,
+so the item that reaches `create_fit_card` is the same dict
+`search_listings` returned. On the empty path, `error` is set and
+`selected_item`, `outfit_suggestion` and `fit_card` stay `None`.
 
 ---
 
 ## Sample Run
 
-<!-- Two things go here.
-
-     1. One FULL query and its output, pasted as text.
-     2. Your three per-tool terminal tests — the command and what it printed. -->
-
 **One full query**
 
 ```
-$ python app.py ask '...'
+$ python app.py ask 'vintage graphic tee under $30'
 
+  Found:    Graphic Tee — 2003 Tour Bootleg Style — $24.0 on depop
+
+  Outfit:   Outfit 1: Pair the Graphic Tee — 2003 Tour Bootleg Style with Baggy straight-leg jeans, dark wash and Black combat boots, finished with the Black crossbody bag for an effortless grunge street look.
+
+Outfit 2: Layer the Graphic Tee — 2003 Tour Bootleg Style over Wide-leg khaki trousers, add the Oversized grey crewneck sweatshirt draped over the shoulders, and lace up the Chunky white sneakers for a relaxed, vintage-inspired fit.
+
+  Fit card: Scored this vintage 2003 tour bootleg tee on depop for just $24 and it's already my new favorite piece. I love styling it with baggy dark wash jeans and black combat boots for that ultimate grunge street look. It also looks so good layered over wide-leg khaki trousers with chunky white sneakers for a more relaxed, vintage vibe.
+```
+
+And the query that matches nothing, which stops after the search:
+
+```
+$ python app.py ask 'designer ballgown size XXS under $5'
+  No listings matched 'designer ballgown' under $5 in size XXS. Try to raise the $5 price ceiling, or drop size XXS, or use broader words, like a category (tops, bottoms, outerwear, shoes, accessories) or a style (vintage, streetwear, y2k, grunge).
+
+0 model calls this session
 ```
 
 **The three tools, tested one at a time**
 
 ```
-$ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
+$ python -c "from tools import search_listings; r = search_listings('graphic tee', max_price=30); print(len(r)); [print(x['id'], x['title'], x['size'], x['price']) for x in r]"
+7
+lst_006 Graphic Tee — 2003 Tour Bootleg Style L 24.0
+lst_002 Y2K Baby Tee — Butterfly Print S/M 18.0
+lst_033 Vintage Band Tee — Faded Grey L 19.0
+lst_015 Vintage Graphic Hoodie — Faded Black L 26.0
+lst_017 Mesh Long-Sleeve Top — Black S/M 15.0
+lst_011 Low-Rise Cargo Pants — Khaki W29 27.0
+lst_012 Oversized Crewneck Sweatshirt — Vintage Navy XL (fits oversized) 20.0
 
+$ python -c "from tools import search_listings; print(search_listings('designer ballgown', size='XXS', max_price=5))"
+[]
 ```
 
 ```
-$ python -c "from tools import suggest_outfit; ..."
+$ python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
+Outfit 1: Pair the Vintage Levi's 501 Jeans — Medium Wash with the White ribbed tank top, the Vintage black denim jacket, and the Chunky white sneakers.
 
+Outfit 2: Pair the Vintage Levi's 501 Jeans — Medium Wash with the Oversized grey crewneck sweatshirt, the Brown leather belt, and the Black combat boots.
+
+$ python -c "from tools import suggest_outfit; from utils.data_loader import get_empty_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_empty_wardrobe()))"
+Pair your Vintage Levi's 501 Jeans with a tucked-in crisp white tee, a cropped black leather jacket, and well-worn canvas sneakers for an effortless everyday look.
+
+For a dressed-up streetwear vibe, style the medium wash denim with an oversized charcoal grey hoodie, a structured trench coat, and chunky black loafers.
 ```
 
 ```
-$ python -c "from tools import create_fit_card; ..."
+$ python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
+Score these vintage Levi's 501 jeans on depop for just $38 and they fit like an absolute glove. Threw them on with my favorite white sneakers for that classic nineties coffee run aesthetic. Honestly never taking these off now that the wash is broken in just right.
 
+$ python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('   ', load_listings()[0]))"
+No outfit to caption for Vintage Levi's 501 Jeans — Medium Wash yet. Run suggest_outfit first.
 ```
 
 ---
 
 ## How I Used AI
 
-<!-- Two specific moments. What you asked, what came back, what you changed.
-
-     "I used Claude to help me code" is not enough.
-
-     "I gave Claude my search_listings spec. It returned None on no match
-     instead of an empty list, so I changed it" is the level we want. -->
-
 **Moment 1**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I gave Claude my Tool Inventory spec for
+  `search_listings` and asked it to implement it: price and size filters,
+  then keyword scoring where a title or style-tag match counts 2 and any
+  other match counts 1.
+- *What came back:* Code that followed the spec exactly, including the
+  whole-part size match, so `M` didn't pick up `XL` and `8` didn't pick up
+  `US 8.5`. But `search_listings('graphic tee', max_price=30)` ranked the Y2K
+  Baby Tee first. That listing has "graphic tee" as a style tag, so it tied
+  with the listing actually titled "Graphic Tee" at 4 points, and the tie
+  went to whichever came first in the data file.
+- *What I changed:* I split the weights so a title match counts 3, a tag 2
+  and everything else 1, and updated the Tool Inventory to match. "Graphic
+  Tee — 2003 Tour Bootleg Style" now comes first. The spec had been followed
+  correctly; the spec itself was what produced the wrong ranking.
 
 **Moment 2**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* A regex parser for the query that pulls out the price
+  ceiling and the size, strips a lead-in like "looking for", and keeps what's
+  left as the description.
+- *What came back:* It parsed all six example queries correctly. But
+  `parse_query('looking for a vintage graphic tee under $30')` returned the
+  description `'a vintage graphic tee'`. Search didn't care, because `a` is a
+  stopword there, but the no-match message quotes the description back to
+  the user, so it would have said "No listings matched 'a vintage graphic
+  tee'".
+- *What I changed:* I made the lead-in pattern also take an optional `a`,
+  `an` or `some` after the verb, and re-ran the parser on the same query to
+  confirm it now gives `'vintage graphic tee'`.
+
+---
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
