@@ -20,9 +20,9 @@ search and tells the user which part of the request to loosen.
 ### `search_listings`
 
 - **What it does:** Filters the 40 listings by price ceiling and size, then
-  ranks what's left by keyword overlap with the description. A word that
-  matches the title or a style tag scores 2. A word that only matches the
-  description, category, colours or brand scores 1. Listings that score 0 are
+  ranks what's left by keyword overlap with the description. Each query word
+  scores 3 if it's in the title, 2 if it's in a style tag, and 1 if it's only
+  in the description, category, colours or brand. Listings that score 0 are
   dropped. A size matches when it equals one whole part of the listing's size,
   split on spaces, slashes and brackets: `M` matches `M`, `S/M` and `M/L`, but
   not `XL` or `W30`, and `8` matches `US 8` but not `US 8.5`. "One Size"
