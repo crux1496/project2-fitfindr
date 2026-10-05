@@ -1,82 +1,73 @@
 # FitFindr
 
-> ### 👋 Start here
->
-> **New to this repo? Read [RUNNING.md](RUNNING.md) first** — setup, every
-> command, and what to do when something breaks.
->
-> Once `python test.py` passes:
->
-> ```bash
-> python app.py listings --full -n 6      # read the data (Milestone 1)
-> python app.py fields                    # what you can filter on
-> python app.py ask 'vintage graphic tee under $30'
-> ```
->
-> All three tools are stubs, so that last command will do nothing useful yet.
-> That's the starting position.
->
-> **The rest of this file is your submission.** Fill it in as you go.
-
----
-
-<!-- ─────────────────────────────────────────────────────────────────────────
-     HOW TO USE THIS FILE
-
-     This is your submission. Fill each section in as you finish the milestone
-     it belongs to — don't leave it all to the end.
-
-     Unit 3 asks for the first five sections. Unit 4 adds the five below them.
-     Leave the unit 4 sections alone until then; they're here so you know
-     what's coming.
-
-     Everything is pasted as TEXT. No screenshots, no images, no video links.
-     A typed block of output gets full credit; a picture of the same output
-     gets none.
-     ───────────────────────────────────────────────────────────────────────── -->
-
-<!-- ═══════════════════════ UNIT 3 — THE BUILD ═══════════════════════ -->
+Cruz Chigonda
 
 ## What This Does
 
-<!-- Three or four sentences: what a user asks for, and what they get back. -->
-
-
+FitFindr takes a plain-language request for a secondhand piece, like
+`'vintage graphic tee under $30'` or `'platform sneakers size 8'`, and pulls
+the price ceiling, the size and the keywords out of it. It searches 40 thrift
+listings from Depop, thredUp and Poshmark and picks the best match. It then
+suggests one or two outfits built around that item from the user's saved
+wardrobe, or general styling advice if the wardrobe is empty, and writes a
+short caption to post about the find. If nothing matches, it stops after the
+search and tells the user which part of the request to loosen.
 
 ---
 
 ## Tool Inventory
 
-<!-- Four lines per tool. This is worth 2 points and it's the single most
-     common place students lose them.
-
-     "Returns a list" earns NOTHING. The description has to say what is IN
-     the list.
-
-     The empty case isn't optional either — it's the thing your loop branches
-     on, and if you don't decide it here you'll discover it as a crash in
-     Milestone 5. -->
-
 ### `search_listings`
 
-- **What it does:**
-- **Inputs:** <!-- name and type each: `max_price` (float), not "a price" -->
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Filters the 40 listings by price ceiling and size, then
+  ranks what's left by keyword overlap with the description. A word that
+  matches the title or a style tag scores 2. A word that only matches the
+  description, category, colours or brand scores 1. Listings that score 0 are
+  dropped. A size matches when it equals one whole part of the listing's size,
+  split on spaces, slashes and brackets: `M` matches `M`, `S/M` and `M/L`, but
+  not `XL` or `W30`, and `8` matches `US 8` but not `US 8.5`. "One Size"
+  listings match any size.
+- **Inputs:** `description` (str), `size` (str | None, where None skips the
+  size filter), `max_price` (float | None, inclusive, where None skips the
+  price filter)
+- **Returns:** a `list[dict]` of at most `config.SEARCH_RESULT_LIMIT` (10)
+  listings, highest score first, with ties kept in data order. Each dict is a
+  whole listing: `id`, `title`, `description`, `category`, `style_tags` (list),
+  `size`, `condition`, `price` (float), `colors` (list), `brand` (str or None)
+  and `platform`.
+- **When it has nothing:** `[]`. It never returns `None` and never raises.
+  The loop branches on this.
 
 ### `suggest_outfit`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Asks the model for one or two outfits built around the
+  thrifted item. With a wardrobe, every outfit uses pieces the user already
+  owns, named as they appear in the wardrobe. With an empty wardrobe, it asks
+  for general styling advice: what kinds of pieces to pair the item with.
+- **Inputs:** `new_item` (dict, one listing as returned by `search_listings`),
+  `wardrobe` (dict with an `items` key holding a list of wardrobe item dicts,
+  each with `name`, `category`, `colors`, `style_tags` and `notes`)
+- **Returns:** a non-empty `str` of one or two outfit suggestions in plain
+  text, a few lines long, naming the thrifted item's title and the pieces it
+  goes with.
+- **When it has nothing:** An empty `wardrobe["items"]` doesn't count as
+  nothing. It returns general styling advice for the item instead. If the
+  model sends back an empty string, it returns a fixed fallback line naming
+  the item's category and style tags, so it never returns `""`.
 
 ### `create_fit_card`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Asks the model for a short caption someone would post
+  about the find. It reads like a real post rather than a product
+  description, and mentions the item, its price and its platform once each.
+- **Inputs:** `outfit` (str, the text `suggest_outfit` returned), `new_item`
+  (dict, the same listing that went into `suggest_outfit`)
+- **Returns:** a `str` caption of two to four sentences, containing the price
+  written as `$24` and the platform name. The brand appears only when the
+  listing has one.
+- **When it has nothing:** If `outfit` is empty or only whitespace, it returns
+  `"No outfit to caption for <title> yet. Run suggest_outfit first."` without
+  calling the model and without raising.
 
 ---
 
