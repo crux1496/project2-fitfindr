@@ -124,39 +124,28 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
 
+_CAPTION_SYSTEM = (
+    "You write captions people post about their thrift finds. Write like a real "
+    "person posting, not a product listing. Two to four sentences, plain text, "
+    "no hashtags."
+)
+
+
+def _price(value: float) -> str:
+    return f"${value:.0f}" if value == int(value) else f"${value:.2f}"
+
+
 def create_fit_card(outfit: str, new_item: dict) -> str:
-    """
-    Write a short caption someone would actually post about the find.
+    if not outfit or not outfit.strip():
+        return f"No outfit to caption for {new_item['title']} yet. Run suggest_outfit first."
 
-    This calls the model too.
-
-    Args:
-        outfit:   the outfit suggestion string from suggest_outfit().
-        new_item: the listing dict for the item.
-
-    Returns:
-        A two-to-four sentence caption.
-        If `outfit` is empty or whitespace, return a descriptive message rather
-        than raising.
-
-    The caption should read like a real post rather than a product description,
-    mention the item and its price and platform once each, and be specific about
-    the vibe.
-
-    It should also come out **differently for different inputs**. If you run
-    this three times on the same item and get three word-for-word identical
-    strings, it's one of two things, and both are near the top of `config.py`:
-
-        • CACHE_ENABLED — the adapter handed back an answer it already had
-        • TEMPERATURE   — at 0.0 the model gives the same words every time
-
-    TODO:
-        1. Guard against an empty or whitespace-only `outfit`.
-        2. Build a prompt with the item details and the outfit.
-        3. Call generate() and return the response.
-
-    Test it from a terminal before you move on:
-        python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
-    """
-    # TODO: replace this with your implementation
-    return ""
+    brand = f" by {new_item['brand']}" if new_item.get("brand") else ""
+    prompt = (
+        f"The find: {new_item['title']}{brand}, {new_item['condition']} condition, "
+        f"{_price(new_item['price'])} on {new_item['platform']}.\n"
+        f"How I'm wearing it: {outfit.strip()}\n\n"
+        "Write the caption. Mention the item, the price written exactly as "
+        f"{_price(new_item['price'])}, and {new_item['platform']} once each, and "
+        "be specific about the vibe of the outfit."
+    )
+    return generate(prompt, system=_CAPTION_SYSTEM).strip()
