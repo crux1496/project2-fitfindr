@@ -13,6 +13,8 @@ Build and test your three tools in `tools.py` first. Then come here.
     python agent.py          runs both example paths below
 """
 
+import re
+
 import config
 import trace
 from tools import search_listings, suggest_outfit, create_fit_card
@@ -49,66 +51,93 @@ def new_session(query: str, wardrobe: dict) -> dict:
 
 # ── planning loop ─────────────────────────────────────────────────────────────
 
+_PRICE = re.compile(
+    r"(?:under|below|less than|max(?:imum)?|up to|at most|<)\s*\$?\s*(\d+(?:\.\d+)?)"
+    r"|\$\s*(\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+_SIZE = re.compile(
+    r"(?:\bin\s+)?(?:\ba\s+)?\bsize\s+"
+    r"(us\s*\d+(?:\.\d+)?|w\d+(?:\s*l\d+)?|\d+(?:\.\d+)?|(?:xx?[sl]|[sml])(?:/(?:xx?[sl]|[sml]))?)\b",
+    re.IGNORECASE,
+)
+_LEAD_IN = re.compile(
+    r"^(?:i'?m\s+|i\s+am\s+)?(?:looking\s+for|find\s+me|show\s+me|i\s+want|i\s+need)\s+(?:an?\s+|some\s+)?",
+    re.IGNORECASE,
+)
+
+
+def parse_query(query: str) -> dict:
+    text = query
+    max_price = None
+    size = None
+
+    price_match = _PRICE.search(text)
+    if price_match:
+        max_price = float(price_match.group(1) or price_match.group(2))
+        text = text[: price_match.start()] + " " + text[price_match.end():]
+
+    size_match = _SIZE.search(text)
+    if size_match:
+        size = size_match.group(1).upper()
+        text = text[: size_match.start()] + " " + text[size_match.end():]
+
+    description = _LEAD_IN.sub("", text.strip())
+    description = re.sub(r"\s+", " ", re.sub(r"[,;]", " ", description)).strip()
+    return {"description": description, "size": size, "max_price": max_price}
+
+
+def _no_match_message(parsed: dict) -> str:
+    asked = f"'{parsed['description']}'"
+    changes = []
+    if parsed["max_price"] is not None:
+        asked += f" under ${parsed['max_price']:g}"
+        changes.append(f"raise the ${parsed['max_price']:g} price ceiling")
+    if parsed["size"]:
+        asked += f" in size {parsed['size']}"
+        changes.append(f"drop size {parsed['size']}")
+    changes.append(
+        "use broader words, like a category (tops, bottoms, outerwear, shoes, "
+        "accessories) or a style (vintage, streetwear, y2k, grunge)"
+    )
+    return f"No listings matched {asked}. Try to " + ", or ".join(changes) + "."
+
+
 def run_agent(query: str, wardrobe: dict) -> dict:
-    """
-    Run the loop once and return the finished session.
-
-    Args:
-        query:    what the user asked for, in plain language
-                  (e.g. "vintage graphic tee under $30, size M").
-        wardrobe: a wardrobe dict — get_example_wardrobe() or
-                  get_empty_wardrobe() from utils/data_loader.py.
-
-    Returns:
-        The session dict. **Check session["error"] first** — if it isn't None,
-        the run ended early and the later fields will still be None.
-
-    ─────────────────────────────────────────────────────────────────────────
-    TODO — build this, following the branch rule you wrote in Milestone 2.
-
-      1. Start a session with new_session().
-
-      2. Count the times round the loop, and call trace.check_iterations(count)
-         on each one before you go again. It raises when the count passes
-         MAX_ITERATIONS in config.py — see trace.py.
-
-      3. Parse the query into a description, a size, and a max_price. Regex,
-         string splitting, or asking the model are all fine — say which you
-         chose in your README. Put the result in session["parsed"].
-
-      4. Call search_listings() with what you parsed.
-         Put the results in session["search_results"].
-
-         ⚠️ THIS IS THE BRANCH. If nothing came back:
-              - put a message in session["error"] saying what the user could
-                change — "No results" is not that message
-              - return the session
-              - do NOT call suggest_outfit with nothing
-
-      5. Choose an item — the first result is fine. Put it in
-         session["selected_item"].
-
-      6. Call suggest_outfit() with the selected item and the wardrobe.
-         Put the result in session["outfit_suggestion"].
-
-      7. Call create_fit_card() with the outfit and the item.
-         Put the result in session["fit_card"].
-
-      8. Return the session.
-
-    ─────────────────────────────────────────────────────────────────────────
-    IN UNIT 4 you come back and add two things:
-
-      • Trace calls. One per step. `trace.step("search_listings", inputs=...,
-        returned=...)` — see trace.py. Your README needs the output.
-
-      • A handler for ModelUnavailable, so a bad key produces a message rather
-        than a stack trace. The import is already at the top of this file.
-    """
     session = new_session(query, wardrobe)
+    session["parsed"] = parse_query(query)
 
-    # TODO: delete these two lines and build the loop.
-    session["error"] = "The planning loop isn't built yet — see the TODO in agent.py."
+    count = 0
+    next_step = "search_listings"
+    while next_step != "done":
+        count += 1
+        trace.check_iterations(count)
+
+        if next_step == "search_listings":
+            session["search_results"] = search_listings(
+                session["parsed"]["description"],
+                size=session["parsed"]["size"],
+                max_price=session["parsed"]["max_price"],
+            )
+            if not session["search_results"]:
+                session["error"] = _no_match_message(session["parsed"])
+                next_step = "done"
+            else:
+                session["selected_item"] = session["search_results"][0]
+                next_step = "suggest_outfit"
+
+        elif next_step == "suggest_outfit":
+            session["outfit_suggestion"] = suggest_outfit(
+                session["selected_item"], session["wardrobe"]
+            )
+            next_step = "create_fit_card"
+
+        elif next_step == "create_fit_card":
+            session["fit_card"] = create_fit_card(
+                session["outfit_suggestion"], session["selected_item"]
+            )
+            next_step = "done"
+
     return session
 
 
