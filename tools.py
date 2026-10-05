@@ -69,36 +69,57 @@ def search_listings(
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
 
+_OUTFIT_SYSTEM = (
+    "You are a thrift stylist. Suggest one or two complete outfits built around "
+    "the thrifted item. Name the item by its title. Keep it to a few short lines "
+    "of plain text, no headings and no markdown."
+)
+
+
+def _describe_item(item: dict) -> str:
+    details = [
+        f"Title: {item['title']}",
+        f"Category: {item['category']}",
+        f"Colors: {', '.join(item['colors'])}",
+        f"Style: {', '.join(item['style_tags'])}",
+        f"Size: {item['size']}",
+        f"Condition: {item['condition']}",
+    ]
+    if item.get("brand"):
+        details.append(f"Brand: {item['brand']}")
+    return "\n".join(details)
+
+
+def _describe_wardrobe_item(piece: dict) -> str:
+    line = f"- {piece['name']} ({piece['category']}; {', '.join(piece['colors'])}; {', '.join(piece['style_tags'])})"
+    return f"{line} - {piece['notes']}" if piece.get("notes") else line
+
+
 def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
-    """
-    Given a thrifted item and the user's wardrobe, suggest one or two outfits.
+    pieces = wardrobe.get("items") or []
+    item = _describe_item(new_item)
 
-    This one calls the model, through `generate()`. You don't need to think
-    about rate limits — the adapter handles pacing for you.
+    if pieces:
+        closet = "\n".join(_describe_wardrobe_item(piece) for piece in pieces)
+        prompt = (
+            f"Thrifted item:\n{item}\n\nThe user's wardrobe:\n{closet}\n\n"
+            "Suggest one or two outfits pairing the thrifted item with pieces "
+            "from this wardrobe. Name each wardrobe piece exactly as listed."
+        )
+    else:
+        prompt = (
+            f"Thrifted item:\n{item}\n\nThe user hasn't saved any wardrobe "
+            "pieces yet. Give general styling advice: one or two outfits "
+            "describing the kinds of pieces, colors and shoes to pair it with."
+        )
 
-    Args:
-        new_item: a listing dict — the item the user is considering.
-        wardrobe: a wardrobe dict with an 'items' key holding a list of items.
-                  **It may be empty.** Handle that.
-
-    Returns:
-        A non-empty string with outfit suggestions.
-        With an empty wardrobe, return general styling advice rather than
-        raising or returning "". Unit 4 has you trigger the empty wardrobe on
-        purpose, so decide now what it should do.
-
-    TODO:
-        1. Check whether wardrobe['items'] is empty.
-        2. If it is, ask the model for general styling ideas for this item.
-        3. If it isn't, format the wardrobe items into the prompt and ask for
-           specific combinations naming pieces the user already owns.
-        4. Return the model's response.
-
-    Test it from a terminal before you move on:
-        python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
-    """
-    # TODO: replace this with your implementation
-    return ""
+    suggestion = generate(prompt, system=_OUTFIT_SYSTEM).strip()
+    if suggestion:
+        return suggestion
+    return (
+        f"Style the {new_item['title']} as a {new_item['category']} piece with "
+        f"{', '.join(new_item['style_tags'])} basics in matching colors."
+    )
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
